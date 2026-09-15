@@ -20,7 +20,7 @@ Every "write code, run code, fix code" loop today pays the same tax three times 
 | **Context-switching to debug** | Copying a stack trace out of your terminal, pasting it into a separate chat tab, re-pasting your source file, and losing your editor's cursor position in the process. |
 | **Slow AI round-trips** | Waiting multiple seconds per token on general-purpose chat models when you just need "what's broken and how do I fix it" — not a conversation. |
 
-**HackRepl collapses all three into one browser tab.** It pairs a real Monaco (VS Code) editor with a sandboxed multi-language execution engine and an AI debugger that already has your code *and* your terminal output in context — no copy-paste, no tab-switching, no setup. Because the AI runs on Groq's LPU inference stack instead of a traditional GPU-serving stack, fixes stream back while you're still reading the error.
+**HackRepl collapses all three into one browser tab.** It pairs a real Monaco (VS Code) editor with a local multi-language execution engine and an AI debugger that already has your code *and* your terminal output in context — no copy-paste, no tab-switching, no setup. Because the AI runs on Groq's LPU inference stack instead of a traditional GPU-serving stack, fixes stream back while you're still reading the error.
 
 It's built for the moments where speed matters most: **hackathons**, **technical interviews**, and **learning a new language** without touching a terminal.
 
@@ -28,18 +28,18 @@ It's built for the moments where speed matters most: **hackathons**, **technical
 
 ## Architecture
 
-HackRepl is a thin, stateless Next.js layer over two best-in-class managed services — it does no execution or inference itself, which keeps the surface area (and the attack surface) small.
+HackRepl is a thin, mostly-stateless Next.js layer. AI inference is delegated to Groq; code execution runs locally on the Next.js server itself via `child_process` — see the security note below before you consider this section "no attack surface."
 
 ```mermaid
 sequenceDiagram
     participant U as Browser (Monaco + React)
     participant N as Next.js Route Handlers
-    participant P as Piston Engine
+    participant L as Local Runner (node:child_process)
     participant G as Groq LPU (Llama 3.1 8B Instant)
 
     U->>N: POST /api/execute { code, language }
-    N->>P: POST /execute { language, version, files }
-    P-->>N: { run: { stdout, stderr, code } }
+    N->>L: write temp file, spawn(node|python, [file])
+    L-->>N: { stdout, stderr, exitCode }
     N-->>U: { output }
     Note over U: stdout/stderr rendered in Terminal panel
 
@@ -52,17 +52,23 @@ sequenceDiagram
 
 **Design decisions worth calling out:**
 
-- **No server-side state.** Every request is self-contained — source, language, and (for the AI route) the last terminal trace are sent fresh each call. This makes the app trivially horizontally scalable and removes an entire class of session-management bugs.
+- **No server-side session state.** Every request is self-contained — source, language, and (for the AI route) the last terminal trace are sent fresh each call. This makes the app trivially horizontally scalable and removes an entire class of session-management bugs.
 - **Streaming all the way down.** `/api/ai-fix` returns a raw [`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream) rather than buffering the full completion — the client reads it with `res.body.getReader()` so tokens paint the screen as Groq emits them, not after the full response lands.
-- **Execution is fully sandboxed.** Piston runs untrusted code in ephemeral, resource-limited containers, so HackRepl never executes user code in its own process — a deliberate boundary given the app accepts arbitrary code as input.
+- **Execution is local, not sandboxed — by design tradeoff, not oversight.** `/api/execute` writes the submitted code to a temp file and runs it with `child_process.spawn` (never `exec`/`shell: true`, so there's no shell-metacharacter injection on top of the intentional code execution) using the same Node binary that runs the server, or the host's `python`/`python3`. The child process gets a stripped-down environment (just `PATH` and the OS bits Windows needs to resolve `python`) so it can't read `GROQ_API_KEY` or other server secrets, and it's killed on a 10s timeout or if output exceeds ~200KB. **This is a zero-dependency, zero-latency tradeoff for local/single-user use (hackathon demos, your own machine) — it is not a sandbox.** Read [Security Model](#security-model) before deploying this anywhere multi-tenant.
 - **The AI context is engineered, not generic.** The `/api/ai-fix` prompt couples the *exact* source in the editor with the *exact* stdout/stderr from the last run, so the model is debugging your real failure — not guessing from a description of it.
+
+### Security Model
+
+> **`/api/execute` runs arbitrary submitted code directly on the machine hosting the Next.js server.** There is no container, VM, network isolation, or filesystem jail — only a timeout, an output cap, and a stripped child environment. That's an acceptable tradeoff for a tool one trusted developer runs locally, and it's the reason this project ships with zero infra dependencies. **It is not acceptable for a publicly reachable, multi-tenant deployment** — anyone who can reach `/api/execute` on such a deployment gets arbitrary code execution as the server's OS user, which means they can read the filesystem, hit your internal network, and exhaust CPU/memory on the host.
+>
+> If you need to expose this to untrusted users (a public demo, a shared classroom instance, etc.), put real sandboxing back in front of it — e.g. run the spawned process inside a locked-down container (gVisor/Firecracker/Docker with `--network none`, a read-only rootfs, and cgroup limits), or swap the runner back for an isolated execution service like [Piston](https://github.com/engineer-man/piston) or [Judge0](https://judge0.com/). Do not deploy this route as-is behind a public URL.
 
 ---
 
 ## Core Features
 
 - 🖊️ **In-browser VS Code editing** — Monaco Editor (`@monaco-editor/react`) with syntax highlighting, bracket matching, and multi-cursor editing, no local install required.
-- 🧪 **Multi-language sandboxed runtime** — Node.js 18 and Python 3.10 execution via Piston, with isolated stdin/stdout/stderr per run.
+- 🧪 **Zero-dependency local runtime** — Node.js and Python execution via `child_process`, with per-run temp files, output capping, and a hard timeout (see the [Security Model](#security-model) for what this does and doesn't protect against).
 - 🩹 **One-click "AI Fix & Explain"** — couples your source code with the real terminal trace from the last run into a single diagnostic prompt, instead of making you describe the bug yourself.
 - ⚡ **Sub-second streaming AI responses** — powered by Groq's LPU inference engine running `llama-3.1-8b-instant`, so explanations and patches render token-by-token in real time.
 - 🌓 **Distraction-free split workspace** — a dark-mode, three-pane layout (editor / terminal / AI assistant) designed to keep your eyes in one place.
@@ -78,7 +84,7 @@ sequenceDiagram
 | **Editor** | [Monaco Editor](https://microsoft.github.io/monaco-editor/) via `@monaco-editor/react` |
 | **Icons** | [Lucide React](https://lucide.dev) |
 | **API layer** | Next.js Route Handlers + the native [Web Streams API](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API) |
-| **Execution engine** | [Piston](https://github.com/engineer-man/piston) (sandboxed Docker subprocess execution) |
+| **Execution engine** | Node.js [`child_process`](https://nodejs.org/api/child_process.html) (`spawn`) running locally — no external service, no containers |
 | **AI engine** | [Groq SDK](https://console.groq.com/docs/libraries) — `llama-3.1-8b-instant`, streamed |
 
 ---
@@ -89,6 +95,7 @@ sequenceDiagram
 
 - **Node.js 18+**
 - **npm** (or `pnpm` / `yarn` / `bun` — any Next.js-compatible package manager)
+- **Python 3** on your `PATH` if you want the Python runtime to work (`python` on Windows, `python3` elsewhere) — the JS runtime needs nothing extra, it reuses the Node binary already running the server
 - A [Groq API key](https://console.groq.com/keys) (free tier available)
 
 ### 1. Clone and install
@@ -119,7 +126,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) — you'll land directly in the workspace with a pre-loaded, intentionally-buggy snippet so you can try "AI Fix & Explain" immediately.
 
-> **Note:** code execution is proxied to Piston's public API endpoint. Piston's hosted API may require IP whitelisting for sustained use — see the [Piston README](https://github.com/engineer-man/piston#public-api) for self-hosting instructions if you outgrow the public instance.
+> **Note:** code execution runs locally via `child_process` — no external service, no API key, no account to whitelist. See [Security Model](#security-model) for what that means if you ever deploy this beyond your own machine.
 
 ---
 
@@ -127,7 +134,7 @@ Open [http://localhost:3000](http://localhost:3000) — you'll land directly in 
 
 ### `POST /api/execute`
 
-Runs source code in an isolated sandbox and returns its captured output.
+Writes the submitted code to a temp file and runs it locally as a child process, returning its captured output. **Not sandboxed** — see [Security Model](#security-model).
 
 **Request body:**
 
@@ -138,7 +145,7 @@ Runs source code in an isolated sandbox and returns its captured output.
 }
 ```
 
-`language` accepts `"javascript"` (Node.js 18.15.0) or `"python"` (Python 3.10.0).
+`language` accepts `"javascript"` (runs on the host's Node binary) or `"python"` (runs on `python`/`python3`).
 
 **Response:**
 
@@ -146,7 +153,9 @@ Runs source code in an isolated sandbox and returns its captured output.
 { "output": "hello world\n" }
 ```
 
-On failure (bad payload, unsupported language, or an upstream Piston error), responds with a non-2xx status and:
+Execution is capped at a 10s timeout (`408` on timeout) and ~200KB of combined stdout/stderr, after which the process is killed and the output is truncated.
+
+On failure (bad payload, unsupported language, missing interpreter, or a timeout), responds with a non-2xx status and:
 
 ```json
 { "error": "description of what went wrong" }
