@@ -42,7 +42,7 @@ Diagnose the bug and provide the fixed code.`;
     let completion;
     try {
       completion = await groq.chat.completions.create({
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-20b",
         stream: true,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },

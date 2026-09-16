@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Groq](https://img.shields.io/badge/Groq-Llama%203.1%208B%20Instant-F55036?style=flat-square)](https://groq.com)
+[![Groq](https://img.shields.io/badge/Groq-GPT--OSS%2020B-F55036?style=flat-square)](https://groq.com)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](./LICENSE)
 
@@ -35,7 +35,7 @@ sequenceDiagram
     participant U as Browser (Monaco + React)
     participant N as Next.js Route Handlers
     participant L as Local Runner (node:child_process)
-    participant G as Groq LPU (Llama 3.1 8B Instant)
+    participant G as Groq LPU (GPT-OSS 20B)
 
     U->>N: POST /api/execute { code, language }
     N->>L: write temp file, spawn(node|python, [file])
@@ -70,7 +70,7 @@ sequenceDiagram
 - 🖊️ **In-browser VS Code editing** — Monaco Editor (`@monaco-editor/react`) with syntax highlighting, bracket matching, and multi-cursor editing, no local install required.
 - 🧪 **Zero-dependency local runtime** — Node.js and Python execution via `child_process`, with per-run temp files, output capping, and a hard timeout (see the [Security Model](#security-model) for what this does and doesn't protect against).
 - 🩹 **One-click "AI Fix & Explain"** — couples your source code with the real terminal trace from the last run into a single diagnostic prompt, instead of making you describe the bug yourself.
-- ⚡ **Sub-second streaming AI responses** — powered by Groq's LPU inference engine running `llama-3.1-8b-instant`, so explanations and patches render token-by-token in real time.
+- ⚡ **Sub-second streaming AI responses** — powered by Groq's LPU inference engine running `openai/gpt-oss-20b`, so explanations and patches render token-by-token in real time.
 - 🌓 **Distraction-free split workspace** — a dark-mode, three-pane layout (editor / terminal / AI assistant) designed to keep your eyes in one place.
 
 ---
@@ -85,7 +85,7 @@ sequenceDiagram
 | **Icons** | [Lucide React](https://lucide.dev) |
 | **API layer** | Next.js Route Handlers + the native [Web Streams API](https://developer.mozilla.org/en-US/docs/Web/API/Streams_API) |
 | **Execution engine** | Node.js [`child_process`](https://nodejs.org/api/child_process.html) (`spawn`) running locally — no external service, no containers |
-| **AI engine** | [Groq SDK](https://console.groq.com/docs/libraries) — `llama-3.1-8b-instant`, streamed |
+| **AI engine** | [Groq SDK](https://console.groq.com/docs/libraries) — `openai/gpt-oss-20b`, streamed |
 
 ---
 

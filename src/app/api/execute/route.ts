@@ -26,7 +26,7 @@ function resolvePythonCommand(): string {
   for (const dir of pathDirs) {
     if (process.platform === "win32" && /\\WindowsApps\\?$/i.test(dir)) continue;
     for (const name of candidateNames) {
-      const full = join(dir, name);
+      const full = join(/* turbopackIgnore: true */ dir, name);
       if (existsSync(full)) return full;
     }
   }
